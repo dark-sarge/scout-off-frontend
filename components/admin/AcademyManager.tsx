@@ -23,6 +23,7 @@ import {
   createAcademy,
   addAcademyMember,
   removeAcademyMember,
+  setAcademyQuorum,
 } from '@/lib/api';
 import type { Academy } from '@/types';
 
@@ -47,6 +48,11 @@ export default function AcademyManager() {
   const [newOwnerWallet, setNewOwnerWallet] = useState('');
   const [memberInputs, setMemberInputs] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<DialogState>(null);
+  // Draft quorum input per academy, keyed by academy id, seeded lazily from
+  // the academy's current value the first time its input is touched — see
+  // quorumDraftFor below.
+  const [quorumInputs, setQuorumInputs] = useState<Record<string, string>>({});
+  const [quorumSaving, setQuorumSaving] = useState<string | null>(null);
 
   // Per-wallet on-chain validator status, so the panel can flag academy
   // members that haven't (yet) been added as validators via the section
@@ -154,6 +160,51 @@ export default function AcademyManager() {
     }
   }
 
+  function quorumDraftFor(academy: Academy): string {
+    return quorumInputs[academy.id] ?? (academy.quorum?.toString() ?? '');
+  }
+
+  /**
+   * Saves an academy's milestone-approval quorum (issue #1185) — an empty
+   * input clears the quorum (back to today's default, no-quorum-configured
+   * behavior); any other value must be a positive integer.
+   */
+  async function handleSaveQuorum(academy: Academy) {
+    const raw = quorumDraftFor(academy).trim();
+    const quorum = raw === '' ? null : Number(raw);
+    if (quorum !== null && (!Number.isInteger(quorum) || quorum < 1)) {
+      show({
+        message: 'Quorum must be a positive whole number, or empty to clear it.',
+        variant: 'error',
+      });
+      return;
+    }
+
+    setQuorumSaving(academy.id);
+    try {
+      const updated = await setAcademyQuorum(academy.id, quorum);
+      setAcademies((list) =>
+        list.map((a) => (a.id === academy.id ? updated : a)),
+      );
+      setQuorumInputs((s) => {
+        const next = { ...s };
+        delete next[academy.id];
+        return next;
+      });
+      show({
+        message:
+          quorum === null
+            ? 'Quorum cleared.'
+            : `Quorum set to ${quorum} signer${quorum !== 1 ? 's' : ''}.`,
+        variant: 'success',
+      });
+    } catch (e: any) {
+      show({ message: e?.message ?? 'Failed to set quorum.', variant: 'error' });
+    } finally {
+      setQuorumSaving(null);
+    }
+  }
+
   if (loading) {
     return <p className="text-sm text-gray-400">Loading academies…</p>;
   }
@@ -235,6 +286,51 @@ export default function AcademyManager() {
                     {academy.members.length} signer
                     {academy.members.length !== 1 ? 's' : ''}
                   </span>
+                </div>
+
+                {/* Milestone approval quorum (issue #1185) — optional,
+                    off-chain-only. Unset by default: an academy that never
+                    touches this behaves identically to before this feature
+                    existed. See docs/academy-validator-model.md. */}
+                <div className="flex items-center gap-2 border-t border-gray-800 pt-3">
+                  <label
+                    htmlFor={`quorum-${academy.id}`}
+                    className="text-xs text-gray-400 shrink-0"
+                  >
+                    Milestone-verification quorum
+                  </label>
+                  <input
+                    id={`quorum-${academy.id}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="Not configured"
+                    className="input w-28 text-sm"
+                    value={quorumDraftFor(academy)}
+                    onChange={(e) =>
+                      setQuorumInputs((s) => ({
+                        ...s,
+                        [academy.id]: e.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    onClick={() => handleSaveQuorum(academy)}
+                    disabled={quorumSaving === academy.id}
+                    className="px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:border-brand-green transition text-xs disabled:opacity-40 shrink-0"
+                  >
+                    {quorumSaving === academy.id ? 'Saving…' : 'Save'}
+                  </button>
+                  {academy.quorum ? (
+                    <span className="text-xs text-emerald-400 shrink-0">
+                      {academy.quorum} signer
+                      {academy.quorum !== 1 ? 's' : ''} required
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500 shrink-0">
+                      Not configured
+                    </span>
+                  )}
                 </div>
 
                 {academy.members.length > 0 && (

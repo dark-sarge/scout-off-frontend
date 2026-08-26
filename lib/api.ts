@@ -382,6 +382,28 @@ export const removeAcademyMember = async (
 };
 
 /**
+ * Sets (or, with `quorum: null`, clears) an academy's milestone-approval
+ * quorum (issue #1185). See types/index.ts's `Academy.quorum` doc comment —
+ * purely off-chain display/workflow, never on-chain authorization.
+ */
+export const setAcademyQuorum = async (
+  academyId: string,
+  quorum: number | null,
+): Promise<Academy> => {
+  const res = await fetchWithRetry(
+    `/api/admin/academies/${encodeURIComponent(academyId)}/quorum`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quorum }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(await parseErrorMessage(res, 'Failed to set quorum'));
+  return res.json();
+};
+
+/**
  * Looks up the academy a validator wallet is registered under, for
  * milestone-attribution display. Returns `null` when the wallet isn't part
  * of any academy or the lookup fails, so callers (e.g. ValidatorChip) can
@@ -398,6 +420,50 @@ export const fetchAcademyForWallet = async (
   } catch {
     return null;
   }
+};
+
+// Milestone endorsements (issue #1185) — off-chain academy-quorum
+// attestations layered on top of an already-on-chain-approved milestone.
+// See app/api/milestones/[playerId]/[milestoneId]/endorsements/route.ts and
+// docs/academy-validator-model.md's "Milestone approval quorum" section.
+import type { MilestoneEndorsement } from '@/types';
+
+export const fetchMilestoneEndorsements = async (
+  playerId: string,
+  milestoneId: string,
+): Promise<MilestoneEndorsement[]> => {
+  try {
+    const res = await fetchWithRetry(
+      `/api/milestones/${encodeURIComponent(playerId)}/${encodeURIComponent(milestoneId)}/endorsements`,
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    return body.endorsements ?? [];
+  } catch {
+    // Fails open, like fetchAcademyForWallet above — a down endpoint just
+    // means the quorum badge doesn't render, not a broken milestone view.
+    return [];
+  }
+};
+
+/**
+ * Records the calling wallet's endorsement of a milestone. Fire-and-forget
+ * callers (e.g. ApproveForm recording its own successful approval as the
+ * first endorsement) should `.catch(() => {})` this — see
+ * lib/adminAuditClient.ts's recordAuditEntry for the same precedent: a
+ * failure to record an endorsement must never affect the action it's
+ * attached to.
+ */
+export const endorseMilestone = async (
+  playerId: string,
+  milestoneId: string,
+): Promise<void> => {
+  const res = await fetchWithRetry(
+    `/api/milestones/${encodeURIComponent(playerId)}/${encodeURIComponent(milestoneId)}/endorsements`,
+    { method: 'POST' },
+  );
+  if (!res.ok)
+    throw new Error(await parseErrorMessage(res, 'Failed to endorse milestone'));
 };
 
 // Milestone submissions (issues #567, #568) — an off-chain queue of

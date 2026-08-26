@@ -101,3 +101,27 @@ test('listAcademies returns every academy with its members', () => {
 
   assert.equal(academyService.listAcademies().length, before + 1);
 });
+
+// ── Milestone approval quorum (issue #1185) ──────────────────────────────────
+
+test('a newly-created academy has no quorum configured by default', () => {
+  const academy = academyService.createAcademy('FC NoQuorum', 'GOWNER7', 'GADMIN');
+  assert.equal(academy.quorum, null);
+});
+
+test('setAcademyQuorum sets and later clears a quorum', () => {
+  const academy = academyService.createAcademy('FC Quorum', 'GOWNER8', 'GADMIN');
+
+  const withQuorum = academyService.setAcademyQuorum(academy.id, 3);
+  assert.equal(withQuorum.quorum, 3);
+
+  const cleared = academyService.setAcademyQuorum(academy.id, null);
+  assert.equal(cleared.quorum, null);
+});
+
+test('setAcademyQuorum throws AcademyNotFoundError for an unknown academy id', () => {
+  assert.throws(
+    () => academyService.setAcademyQuorum('does-not-exist', 2),
+    academyService.AcademyNotFoundError,
+  );
+});

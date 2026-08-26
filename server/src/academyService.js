@@ -19,6 +19,9 @@ const insertMember = db.prepare(
 const findMemberByWallet = db.prepare(
   `SELECT * FROM academy_members WHERE wallet = ?`,
 );
+const updateQuorumStmt = db.prepare(
+  `UPDATE academies SET quorum = @quorum WHERE id = @id`,
+);
 const listMembersByAcademy = db.prepare(
   `SELECT * FROM academy_members WHERE academy_id = ? ORDER BY added_at ASC`,
 );
@@ -42,6 +45,9 @@ function toAcademy(row) {
     ownerWallet: row.owner_wallet,
     createdAt: row.created_at,
     members: listMembersByAcademy.all(row.id).map(toMember),
+    // NULL (unconfigured) is the default and must behave identically to
+    // today — see issue #1185.
+    quorum: row.quorum ?? null,
   };
 }
 
@@ -98,6 +104,22 @@ function getAcademyForWallet(wallet) {
   return member ? getAcademy(member.academy_id) : null;
 }
 
+/**
+ * Sets (or clears, with `quorum: null`) an academy's milestone-approval
+ * quorum (issue #1185) — the minimum number of its distinct member wallets
+ * that must each endorse a milestone before the frontend shows it as
+ * "academy-verified." Purely an off-chain display/workflow setting: it
+ * never affects on-chain approve_milestone authorization, which stays
+ * single-signer exactly as before, regardless of this value.
+ */
+function setAcademyQuorum(academyId, quorum) {
+  if (!findAcademyById.get(academyId)) {
+    throw new AcademyNotFoundError(`Academy ${academyId} not found`);
+  }
+  updateQuorumStmt.run({ id: academyId, quorum });
+  return getAcademy(academyId);
+}
+
 module.exports = {
   AcademyNotFoundError,
   WalletAlreadyAssignedError,
@@ -107,4 +129,5 @@ module.exports = {
   addMember,
   removeMember,
   getAcademyForWallet,
+  setAcademyQuorum,
 };
