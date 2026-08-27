@@ -127,6 +127,82 @@ endpoint and can be triggered by any external scheduler (a Vercel Cron job,
 a GitHub Actions scheduled workflow, or an uptime-ping-style service)
 exactly as-is, without further changes to this design.
 
+As of issue #1188, `.github/workflows/reconcile-audit-log.yml` does exactly
+this: a scheduled GitHub Actions workflow (every 15 minutes, plus
+`workflow_dispatch` for a manual run) calls the endpoint directly. Because
+the endpoint is gated by the same session-cookie admin check every other
+`app/api/admin/**` route uses (`requireAdminWallet`, `lib/adminAuth.ts`),
+and this issue deliberately makes no changes to that auth mechanism, the
+workflow authenticates by replaying a real admin session cookie:
+
+1. Sign in to the deployed app as the admin wallet with "remember me"
+   checked, so the `session_refresh` cookie (and the `session` access
+   cookie it can mint fresh access tokens from) lives for
+   `REMEMBER_ME_REFRESH_TTL_SEC` (30 days) rather than the default 1 day.
+2. Copy the `session` cookie's value and store it as the `ADMIN_SESSION_COOKIE`
+   repository secret. Set the `DEPLOYED_APP_URL` repository variable to the
+   deployment's base URL.
+3. The access token itself is short-lived (`ACCESS_TOKEN_TTL_SEC`, 20
+   minutes) — this cookie will need to be refreshed/replaced periodically
+   (well within the 30-day session lifetime) by repeating step 1, since this
+   workflow calls the reconciliation endpoint directly rather than going
+   through `/api/auth/refresh`.
+
+If a Vercel Cron job is preferred instead, the same constraint applies: it
+needs some way to attach a valid `session` cookie to its request. A future,
+separately-scoped issue could add a dedicated service-token auth path for
+schedulers (bypassing the session-cookie requirement entirely) — out of
+scope here, since this issue's goal was wiring the periodic trigger onto
+the endpoint exactly as it already exists, per the framing above.
+
+## Reconciliation-run history
+
+Every call to `GET /api/admin/audit-log/reconcile` — whether from an
+admin's open panel or the scheduled workflow above — persists its result via
+`ReconciliationHistoryStore` (`lib/reconciliationHistoryStore.ts`, issue
+#1188), mirroring the other `lib/*Store.ts` conventions: its own
+better-sqlite3-backed file, schema applied through
+`lib/sqliteMigrations.ts`'s versioned runner (see
+`lib/migrations/reconciliationHistoryMigrations.ts`), process-wide
+singleton. Each row records `checked_at`, the full mismatch list (including
+type and target — enough to reconstruct exactly what drift existed at that
+point in time), and how many of those mismatches were newly-appearing
+relative to the immediately preceding run.
+
+`AdminAuditLog.tsx` gains a collapsible "Reconciliation history" section
+(collapsed by default, to keep the page from growing unbounded) listing
+past runs — timestamp, mismatch count, new-mismatch count, and the distinct
+mismatch `kind`s seen — below the existing live-result banner, which still
+shows only the single latest run.
+
+## Alerting on newly-appearing mismatches
+
+A run whose mismatch set contains at least one entry not present in the
+immediately preceding run triggers a notification via
+`lib/reconciliationNotify.ts`'s `notifyNewMismatches`. Two mismatches are
+considered "the same" (not new) when their `actionType`, `kind`, and
+`target` all match — `lib/reconciliationHistoryStore.ts`'s `mismatchKey`.
+This is what keeps a mismatch that persists across many consecutive runs
+(e.g. an admin hasn't gotten around to fixing it yet) from re-triggering a
+fresh notification every single run — it only fires once, on first
+appearance. This issue does not implement the acceptance criteria's
+*optional* longer-cadence "still unresolved" reminder; the history view
+above already lets an admin see how long a mismatch has persisted.
+
+**Notification channel: webhook, not email.** This repo has no
+email-sending dependency or configured provider anywhere in it — adding one
+solely for this one alert would mean picking and wiring an entire provider
+integration (SES, SendGrid, Resend, or similar) for a single call site. A
+webhook needs nothing new: set the `RECONCILIATION_WEBHOOK_URL` environment
+variable to any HTTPS endpoint (a Slack incoming webhook, a PagerDuty
+Events API URL, a custom endpoint) and a JSON payload (`{ text, checkedAt,
+newMismatches, totalMismatches }` — `text` is a ready-to-display Slack-style
+summary line) is POSTed to it whenever a run finds a new mismatch. Unset,
+this is a no-op — same "fails open, no infra required" default as the rest
+of this design. Delivery is fire-and-forget (errors are swallowed), for the
+same reason `recordAuditEntry` is: a notification failure must never affect
+the reconciliation response itself.
+
 ## Surfacing mismatches
 
 `components/admin/AdminAuditLog.tsx` renders a non-dismissible

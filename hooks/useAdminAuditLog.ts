@@ -3,9 +3,14 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   fetchAuditLog,
   fetchReconciliation,
+  fetchReconciliationHistory,
   type AuditLogQuery,
 } from '@/lib/adminAuditClient';
-import type { AdminAuditEntry, ReconciliationResult } from '@/lib/adminAudit';
+import type {
+  AdminAuditEntry,
+  ReconciliationResult,
+  ReconciliationRun,
+} from '@/lib/adminAudit';
 
 /**
  * Reconciliation is re-run on an interval while the admin has the audit log
@@ -26,6 +31,8 @@ export interface UseAdminAuditLogResult {
   reconciling: boolean;
   runReconciliation: () => void;
   refetch: () => void;
+  reconciliationHistory: ReconciliationRun[];
+  reconciliationHistoryLoading: boolean;
 }
 
 export function useAdminAuditLog(): UseAdminAuditLogResult {
@@ -37,6 +44,11 @@ export function useAdminAuditLog(): UseAdminAuditLogResult {
   const [reconciliation, setReconciliation] =
     useState<ReconciliationResult | null>(null);
   const [reconciling, setReconciling] = useState(false);
+  const [reconciliationHistory, setReconciliationHistory] = useState<
+    ReconciliationRun[]
+  >([]);
+  const [reconciliationHistoryLoading, setReconciliationHistoryLoading] =
+    useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -51,17 +63,33 @@ export function useAdminAuditLog(): UseAdminAuditLogResult {
     load();
   }, [load]);
 
+  const loadReconciliationHistory = useCallback(() => {
+    setReconciliationHistoryLoading(true);
+    fetchReconciliationHistory()
+      .then(setReconciliationHistory)
+      .catch(() => {
+        // Same rationale as runReconciliation's catch below — leave
+        // whatever history was last successfully loaded in place.
+      })
+      .finally(() => setReconciliationHistoryLoading(false));
+  }, []);
+
   const runReconciliation = useCallback(() => {
     setReconciling(true);
     fetchReconciliation()
-      .then(setReconciliation)
+      .then((result) => {
+        setReconciliation(result);
+        // Each run is persisted server-side as it happens (issue #1188) —
+        // refresh the history list so it shows up without a manual reload.
+        loadReconciliationHistory();
+      })
       .catch(() => {
         // A failed reconciliation check is itself worth surfacing distinctly
         // from "no mismatches" — leave `reconciliation` as-is (stale, not
         // wiped) rather than pretending everything is fine.
       })
       .finally(() => setReconciling(false));
-  }, []);
+  }, [loadReconciliationHistory]);
 
   useEffect(() => {
     runReconciliation();
@@ -79,5 +107,7 @@ export function useAdminAuditLog(): UseAdminAuditLogResult {
     reconciling,
     runReconciliation,
     refetch: load,
+    reconciliationHistory,
+    reconciliationHistoryLoading,
   };
 }

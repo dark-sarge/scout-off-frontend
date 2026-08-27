@@ -12,13 +12,14 @@ const mockFetchAcademies = jest.fn();
 const mockCreateAcademy = jest.fn();
 const mockAddAcademyMember = jest.fn();
 const mockRemoveAcademyMember = jest.fn();
-const mockSetAcademyQuorum = jest.fn();
+const mockFetchAcademyMilestoneRollup = jest.fn();
 jest.mock('@/lib/api', () => ({
   fetchAcademies: (...args: unknown[]) => mockFetchAcademies(...args),
   createAcademy: (...args: unknown[]) => mockCreateAcademy(...args),
   addAcademyMember: (...args: unknown[]) => mockAddAcademyMember(...args),
   removeAcademyMember: (...args: unknown[]) => mockRemoveAcademyMember(...args),
-  setAcademyQuorum: (...args: unknown[]) => mockSetAcademyQuorum(...args),
+  fetchAcademyMilestoneRollup: (...args: unknown[]) =>
+    mockFetchAcademyMilestoneRollup(...args),
 }));
 
 const mockCheckIsValidator = jest.fn();
@@ -52,6 +53,11 @@ const ACADEMY = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckIsValidator.mockResolvedValue(true);
+  mockFetchAcademyMilestoneRollup.mockResolvedValue({
+    range: { start: 0, end: 1 },
+    indexerAvailable: true,
+    academies: [],
+  });
 });
 
 describe('AcademyManager', () => {

@@ -35,6 +35,20 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
+// Bucket keys ('YYYY-MM-DD') are fixed to UTC day boundaries (see
+// hooks/useFeeRevenue.ts) so admins in different timezones see the same
+// bucketing for the same data. For display only, render the label using the
+// viewer's locale conventions (month/day order, abbreviation) while pinning
+// `timeZone: 'UTC'` so the calendar day shown never shifts away from the
+// UTC bucket it represents.
+function formatBucketLabel(dateKey: string): string {
+  return new Date(`${dateKey}T00:00:00Z`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export default function FeeRevenueChart() {
   const { data, loading, error } = useFeeRevenue();
   const { hasDrift, warningMessage } = useFeeDriftDetection();
@@ -144,6 +158,7 @@ export default function FeeRevenueChart() {
               <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
               <XAxis
                 dataKey="date"
+                tickFormatter={formatBucketLabel}
                 tick={{ fill: '#9CA3AF', fontSize: 11 }}
                 minTickGap={24}
               />
@@ -151,6 +166,7 @@ export default function FeeRevenueChart() {
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
                 labelStyle={{ color: '#E5E7EB' }}
+                labelFormatter={(label) => formatBucketLabel(String(label))}
               />
               <Legend wrapperStyle={{ fontSize: 12, color: '#9CA3AF' }} />
               <Bar

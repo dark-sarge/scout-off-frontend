@@ -164,6 +164,7 @@ import type {
   ReferralOverview,
   FraudFlag,
   FraudThrottle,
+  FraudFlagDismissal,
 } from '@/types';
 
 export const generateReferralCode = (
@@ -291,20 +292,43 @@ export const fetchFraudThrottles = async (): Promise<{
 /**
  * The only way a throttle changes state — no automatic expiry exists
  * anywhere in this codebase, per docs/fraud-detection.md.
+ *
+ * Deliberately a bare `fetch`, not `fetchWithRetry`: a POST with no
+ * idempotency key, so an automatic retry after a lost response risks a
+ * confusing double-lift attempt.
  */
 export const liftFraudThrottle = async (
   id: number,
   reason?: string,
 ): Promise<FraudThrottle> => {
-  const res = await fetchWithRetry(
-    `/api/admin/fraud-flags/throttles/${id}/lift`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    },
-  );
+  const res = await fetch(`/api/admin/fraud-flags/throttles/${id}/lift`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
   if (!res.ok) throw new Error('Failed to lift fraud throttle');
+  return res.json();
+};
+
+/**
+ * Persists an admin decision that `flag` is reviewed and not actually abuse
+ * (issue #1171), so it stops re-surfacing on subsequent `fetchFraudFlags`
+ * loads as long as the underlying evidence hasn't materially changed. See
+ * lib/fraudFlagDismissalStore.ts and app/api/admin/fraud-flags/dismiss/route.ts.
+ *
+ * Deliberately a bare `fetch`, not `fetchWithRetry`: a POST with no
+ * idempotency key, matching liftFraudThrottle's precedent above.
+ */
+export const dismissFraudFlag = async (
+  flag: Pick<FraudFlag, 'category' | 'heuristic' | 'severity' | 'wallets' | 'reason'>,
+  note?: string,
+): Promise<FraudFlagDismissal> => {
+  const res = await fetch('/api/admin/fraud-flags/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flag, note }),
+  });
+  if (!res.ok) throw new Error('Failed to dismiss fraud flag');
   return res.json();
 };
 
@@ -334,11 +358,30 @@ export const fetchAcademies = async (): Promise<Academy[]> => {
   return res.json();
 };
 
+/**
+ * Scoped academy-owner admin role (issue #1173) — returns the academy/
+ * academies the *connected* wallet is recorded as `ownerWallet` for, via
+ * the session cookie (not the super-admin-gated full list above). Used by
+ * AcademyOwnerManager to find which academy(ies) it may self-serve.
+ */
+export const fetchMyAcademies = async (): Promise<Academy[]> => {
+  const res = await fetchWithRetry('/api/admin/academies/mine');
+  if (!res.ok)
+    throw new Error(
+      await parseErrorMessage(res, 'Failed to fetch your academies'),
+    );
+  return res.json();
+};
+
+// createAcademy/addAcademyMember deliberately use a bare `fetch`, not
+// `fetchWithRetry`: both are POSTs with no idempotency key, so an automatic
+// retry after a lost response risks creating a duplicate academy or
+// membership row.
 export const createAcademy = async (
   name: string,
   ownerWallet: string,
 ): Promise<Academy> => {
-  const res = await fetchWithRetry('/api/admin/academies', {
+  const res = await fetch('/api/admin/academies', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, ownerWallet }),
@@ -352,7 +395,7 @@ export const addAcademyMember = async (
   academyId: string,
   wallet: string,
 ): Promise<Academy> => {
-  const res = await fetchWithRetry(
+  const res = await fetch(
     `/api/admin/academies/${encodeURIComponent(academyId)}/members`,
     {
       method: 'POST',
@@ -422,48 +465,26 @@ export const fetchAcademyForWallet = async (
   }
 };
 
-// Milestone endorsements (issue #1185) — off-chain academy-quorum
-// attestations layered on top of an already-on-chain-approved milestone.
-// See app/api/milestones/[playerId]/[milestoneId]/endorsements/route.ts and
-// docs/academy-validator-model.md's "Milestone approval quorum" section.
-import type { MilestoneEndorsement } from '@/types';
-
-export const fetchMilestoneEndorsements = async (
-  playerId: string,
-  milestoneId: string,
-): Promise<MilestoneEndorsement[]> => {
-  try {
-    const res = await fetchWithRetry(
-      `/api/milestones/${encodeURIComponent(playerId)}/${encodeURIComponent(milestoneId)}/endorsements`,
-    );
-    if (!res.ok) return [];
-    const body = await res.json();
-    return body.endorsements ?? [];
-  } catch {
-    // Fails open, like fetchAcademyForWallet above — a down endpoint just
-    // means the quorum badge doesn't render, not a broken milestone view.
-    return [];
-  }
-};
+import type { AcademyMilestoneRollup } from '@/types';
 
 /**
- * Records the calling wallet's endorsement of a milestone. Fire-and-forget
- * callers (e.g. ApproveForm recording its own successful approval as the
- * first endorsement) should `.catch(() => {})` this — see
- * lib/adminAuditClient.ts's recordAuditEntry for the same precedent: a
- * failure to record an endorsement must never affect the action it's
- * attached to.
+ * Academy-scoped milestone-approval rollup (issue #1172): total approved
+ * milestones per academy, summed across its member wallets, for the last
+ * `rangeDays` days (or all-time when `rangeDays` is `'all'`). See
+ * docs/academy-validator-model.md's "Academy milestone rollup" section for
+ * the historical-attribution caveat this carries.
  */
-export const endorseMilestone = async (
-  playerId: string,
-  milestoneId: string,
-): Promise<void> => {
+export const fetchAcademyMilestoneRollup = async (
+  rangeDays: number | 'all' = 30,
+): Promise<AcademyMilestoneRollup> => {
   const res = await fetchWithRetry(
-    `/api/milestones/${encodeURIComponent(playerId)}/${encodeURIComponent(milestoneId)}/endorsements`,
-    { method: 'POST' },
+    `/api/admin/academies/rollup?rangeDays=${rangeDays}`,
   );
   if (!res.ok)
-    throw new Error(await parseErrorMessage(res, 'Failed to endorse milestone'));
+    throw new Error(
+      await parseErrorMessage(res, 'Failed to fetch academy milestone rollup'),
+    );
+  return res.json();
 };
 
 // Milestone submissions (issues #567, #568) — an off-chain queue of

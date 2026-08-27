@@ -59,7 +59,9 @@ describe('SpendingSummary component', () => {
 
     render(<SpendingSummary />);
     expect(
-      screen.getByText(/Could not load spending data. The indexer may be unavailable./i),
+      screen.getByText(
+        /Could not load spending data. The indexer may be unavailable./i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -85,7 +87,35 @@ describe('SpendingSummary component', () => {
 
     render(<SpendingSummary />);
     expect(screen.getByText('Spending Summary')).toBeInTheDocument();
+    expect(screen.getAllByTestId('xlm-fiat-display')).toHaveLength(3);
+    expect(
+      screen
+        .getAllByTestId('xlm-fiat-display')
+        .map((display) => display.textContent),
+    ).toEqual(['2 XLM', '12 XLM', '14 XLM']);
     expect(screen.getByText('Aug 2026')).toBeInTheDocument();
+  });
+
+  it('renders the empty state when no spending has been recorded', () => {
+    mockUseSpendingSummary.mockReturnValue({
+      data: {
+        totalContactFeesXlm: 0,
+        totalSubscriptionsXlm: 0,
+        totalXlm: 0,
+        monthlyBreakdown: [],
+      },
+      loading: false,
+      error: null,
+    });
+
+    render(<SpendingSummary />);
+
+    expect(
+      screen.getByText(
+        /No payments recorded yet\. Your spending history will appear here/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Monthly Breakdown')).not.toBeInTheDocument();
   });
 
   it('renders drift alert banner when on-chain fee drift is detected', () => {
@@ -113,6 +143,8 @@ describe('SpendingSummary component', () => {
 
     render(<SpendingSummary />);
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(/On-chain fee drift detected/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/On-chain fee drift detected/i),
+    ).toBeInTheDocument();
   });
 });

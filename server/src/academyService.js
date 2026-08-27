@@ -12,6 +12,9 @@ const findAcademyById = db.prepare(`SELECT * FROM academies WHERE id = ?`);
 const listAcademiesStmt = db.prepare(
   `SELECT * FROM academies ORDER BY created_at DESC`,
 );
+const findAcademiesByOwnerWallet = db.prepare(
+  `SELECT * FROM academies WHERE owner_wallet = ? ORDER BY created_at DESC`,
+);
 const insertMember = db.prepare(
   `INSERT INTO academy_members (wallet, academy_id, added_at, added_by)
    VALUES (@wallet, @academyId, @addedAt, @addedBy)`,
@@ -105,19 +108,14 @@ function getAcademyForWallet(wallet) {
 }
 
 /**
- * Sets (or clears, with `quorum: null`) an academy's milestone-approval
- * quorum (issue #1185) — the minimum number of its distinct member wallets
- * that must each endorse a milestone before the frontend shows it as
- * "academy-verified." Purely an off-chain display/workflow setting: it
- * never affects on-chain approve_milestone authorization, which stays
- * single-signer exactly as before, regardless of this value.
+ * Looks up every academy `wallet` is recorded as the `ownerWallet` of (see
+ * issue #1173 — the scoped academy-owner admin role). Nothing today
+ * prevents one wallet from being recorded as owner on more than one
+ * academy, so this returns an array rather than assuming at most one, even
+ * though the common case is a single academy.
  */
-function setAcademyQuorum(academyId, quorum) {
-  if (!findAcademyById.get(academyId)) {
-    throw new AcademyNotFoundError(`Academy ${academyId} not found`);
-  }
-  updateQuorumStmt.run({ id: academyId, quorum });
-  return getAcademy(academyId);
+function listAcademiesByOwnerWallet(wallet) {
+  return findAcademiesByOwnerWallet.all(wallet).map(toAcademy);
 }
 
 module.exports = {
@@ -129,5 +127,5 @@ module.exports = {
   addMember,
   removeMember,
   getAcademyForWallet,
-  setAcademyQuorum,
+  listAcademiesByOwnerWallet,
 };

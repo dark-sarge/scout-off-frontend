@@ -48,10 +48,13 @@ export default function AdminAuditLog() {
     reconciliation,
     reconciling,
     runReconciliation,
+    reconciliationHistory,
+    reconciliationHistoryLoading,
   } = useAdminAuditLog();
 
   const [fromInput, setFromInput] = useState('');
   const [toInput, setToInput] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
   const mismatches = reconciliation?.mismatches ?? [];
 
@@ -181,6 +184,88 @@ export default function AdminAuditLog() {
           Reconciliation last checked: {lastChecked}
         </p>
       )}
+
+      {/* Reconciliation history (issue #1188): every past run, not just the
+          latest live result the banner above shows — including runs
+          triggered by an external scheduler while no admin had this panel
+          open. See docs/admin-audit-log.md. */}
+      <div className="rounded-lg border border-gray-800">
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          aria-expanded={showHistory}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-300 hover:text-white transition"
+        >
+          <span>
+            Reconciliation history
+            {reconciliationHistory.length > 0 &&
+              ` (${reconciliationHistory.length} run${reconciliationHistory.length !== 1 ? 's' : ''})`}
+          </span>
+          <span aria-hidden="true">{showHistory ? '−' : '+'}</span>
+        </button>
+
+        {showHistory && (
+          <div className="border-t border-gray-800 px-4 py-3">
+            {reconciliationHistoryLoading ? (
+              <p className="text-sm text-gray-400">Loading history…</p>
+            ) : reconciliationHistory.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                No reconciliation runs recorded yet.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead>
+                    <tr className="text-gray-400 text-xs uppercase tracking-wide border-b border-gray-800">
+                      <th className="py-2 pr-4">Checked at</th>
+                      <th className="py-2 pr-4">Mismatches</th>
+                      <th className="py-2 pr-4">New</th>
+                      <th className="py-2 pr-4">Types</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {reconciliationHistory.map((run) => {
+                      const kinds = Array.from(
+                        new Set(run.mismatches.map((m) => m.kind)),
+                      );
+                      return (
+                        <tr key={run.id}>
+                          <td className="py-2 pr-4 text-gray-400 whitespace-nowrap">
+                            {new Date(run.checkedAt * 1000).toLocaleString()}
+                          </td>
+                          <td className="py-2 pr-4">
+                            <span
+                              className={
+                                run.mismatches.length > 0
+                                  ? 'text-red-400 font-medium'
+                                  : 'text-brand-green'
+                              }
+                            >
+                              {run.mismatches.length}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-gray-400">
+                            {run.newMismatchCount > 0 ? (
+                              <span className="text-amber-400 font-medium">
+                                {run.newMismatchCount}
+                              </span>
+                            ) : (
+                              0
+                            )}
+                          </td>
+                          <td className="py-2 pr-4 text-gray-500">
+                            {kinds.length > 0 ? kinds.join(', ') : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <p className="text-sm text-gray-400">Loading…</p>

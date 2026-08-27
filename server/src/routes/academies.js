@@ -52,6 +52,18 @@ router.get('/wallet/:wallet', (req, res) => {
   return res.json(academy);
 });
 
+// GET /academies/owner/:wallet
+// Used by app/api/admin/academies/mine (see lib/academyAuth.ts) to resolve
+// whether a session wallet is a scoped academy-owner (issue #1173). Not
+// itself an admin action — it only reveals which academies (if any) a
+// wallet owns, the same shape of information `GET /academies` already
+// exposes to any super-admin caller. Route-level authorization for actually
+// *managing* a roster is enforced by the Next.js proxy, not here — this
+// service has no auth of its own, matching every other route in this file.
+router.get('/owner/:wallet', (req, res) => {
+  return res.json(academyService.listAcademiesByOwnerWallet(req.params.wallet));
+});
+
 // POST /academies/:id/members
 // Body: { wallet: string, addedBy: string }
 router.post('/:id/members', (req, res) => {
