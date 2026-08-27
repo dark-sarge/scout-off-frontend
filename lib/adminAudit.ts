@@ -11,6 +11,7 @@ export const ADMIN_AUDIT_ACTION_TYPES = [
   'fee_withdrawal',
   'pause',
   'unpause',
+  'fraud_flag_dismiss',
 ] as const;
 
 export type AdminAuditActionType = (typeof ADMIN_AUDIT_ACTION_TYPES)[number];
@@ -66,6 +67,7 @@ export const ADMIN_AUDIT_ACTION_LABELS: Record<AdminAuditActionType, string> = {
   fee_withdrawal: 'Fees Withdrawn',
   pause: 'Contract Paused',
   unpause: 'Contract Unpaused',
+  fraud_flag_dismiss: 'Fraud Flag Dismissed',
 };
 
 export interface ReconciliationMismatch {
