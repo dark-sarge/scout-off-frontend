@@ -335,6 +335,21 @@ export const fetchAcademies = async (): Promise<Academy[]> => {
   return res.json();
 };
 
+/**
+ * Scoped academy-owner admin role (issue #1173) — returns the academy/
+ * academies the *connected* wallet is recorded as `ownerWallet` for, via
+ * the session cookie (not the super-admin-gated full list above). Used by
+ * AcademyOwnerManager to find which academy(ies) it may self-serve.
+ */
+export const fetchMyAcademies = async (): Promise<Academy[]> => {
+  const res = await fetchWithRetry('/api/admin/academies/mine');
+  if (!res.ok)
+    throw new Error(
+      await parseErrorMessage(res, 'Failed to fetch your academies'),
+    );
+  return res.json();
+};
+
 // createAcademy/addAcademyMember deliberately use a bare `fetch`, not
 // `fetchWithRetry`: both are POSTs with no idempotency key, so an automatic
 // retry after a lost response risks creating a duplicate academy or
