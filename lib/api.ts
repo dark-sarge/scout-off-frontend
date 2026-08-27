@@ -164,6 +164,7 @@ import type {
   ReferralOverview,
   FraudFlag,
   FraudThrottle,
+  FraudFlagDismissal,
 } from '@/types';
 
 export const generateReferralCode = (
@@ -306,6 +307,28 @@ export const liftFraudThrottle = async (
     body: JSON.stringify({ reason }),
   });
   if (!res.ok) throw new Error('Failed to lift fraud throttle');
+  return res.json();
+};
+
+/**
+ * Persists an admin decision that `flag` is reviewed and not actually abuse
+ * (issue #1171), so it stops re-surfacing on subsequent `fetchFraudFlags`
+ * loads as long as the underlying evidence hasn't materially changed. See
+ * lib/fraudFlagDismissalStore.ts and app/api/admin/fraud-flags/dismiss/route.ts.
+ *
+ * Deliberately a bare `fetch`, not `fetchWithRetry`: a POST with no
+ * idempotency key, matching liftFraudThrottle's precedent above.
+ */
+export const dismissFraudFlag = async (
+  flag: Pick<FraudFlag, 'category' | 'heuristic' | 'severity' | 'wallets' | 'reason'>,
+  note?: string,
+): Promise<FraudFlagDismissal> => {
+  const res = await fetch('/api/admin/fraud-flags/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flag, note }),
+  });
+  if (!res.ok) throw new Error('Failed to dismiss fraud flag');
   return res.json();
 };
 
