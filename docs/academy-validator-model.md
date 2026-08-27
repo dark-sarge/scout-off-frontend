@@ -56,16 +56,55 @@ academy tag per validator? Two reasons:
 
 ## Admin flow
 
-Today's authorization model is a single super-admin
-(`NEXT_PUBLIC_ADMIN_ADDRESS`, checked both client-side in
-`app/[locale]/admin/page.tsx` and server-side via the `session` cookie in
-`app/api/admin/**` routes) — there is no scoped/delegated admin role. Rather
-than invent a second authorization system for "academy owners" managing
-their own roster (a materially larger change with its own security surface),
-academy creation and membership changes go through the **same** super-admin
-gate as the existing "Add/Remove Validator" section, via
-`app/api/admin/academies/**` proxy routes that check the session cookie
-before forwarding to the `server/` service.
+The platform super-admin (`NEXT_PUBLIC_ADMIN_ADDRESS`, checked both
+client-side in `app/[locale]/admin/page.tsx` and server-side via the
+`session` cookie in `app/api/admin/**` routes) can still manage every
+academy's roster, unchanged. Academy *creation* remains super-admin-only —
+`POST /api/admin/academies` and the full-listing `GET /api/admin/academies`
+are unreachable by anything but the super-admin, deliberately: issue #1173
+scoped the first version of the academy-owner role conservatively to roster
+add/remove, not academy self-service.
+
+On top of that, an academy's recorded `ownerWallet` can now manage that one
+academy's own roster (issue #1173) — this is an *additive* second role, not
+a replacement for the super-admin gate. `lib/academyAuth.ts`'s
+`resolveAcademyRole`/`requireAcademyManager` do the session-to-role
+resolution: a connected wallet is the super-admin if it matches
+`NEXT_PUBLIC_ADMIN_ADDRESS`, or an academy-owner if the backend's new
+`GET /academies/owner/:wallet` lookup (`academyService.listAcademiesByOwnerWallet`)
+finds it recorded as `ownerWallet` on one or more academies, or neither (in
+which case every route below rejects it). The backend lookup failing (or
+erroring) resolves to "no role," not "allow" — this fails closed, unlike
+the enrichment-only `fetchAcademyForWallet` lookup below which fails open.
+
+`app/api/admin/academies/[id]/members/route.ts` (add a signer) and
+`.../[id]/members/[wallet]/route.ts` (remove a signer) now authorize via
+`requireAcademyManager(req, id)` instead of the flat `requireAdminWallet`:
+the super-admin passes for any `id`; an academy-owner passes only when
+`id` is one of the academy ids `resolveAcademyRole` found for their
+wallet — an owner can never reach another academy's roster through these
+routes, by construction rather than by an extra runtime check. A new
+`GET /api/admin/academies/mine` route lets a connected wallet discover
+which academy/academies (if any) it owns, without needing the
+super-admin-only full list.
+
+The scoped UI lives at `/academy/roster`
+(`components/academy/AcademyOwnerRoster.tsx`), gated only to "any
+authenticated wallet" the way `/academy/bulk-import` is — the real
+authorization happens server-side as described above, so an owner-less
+wallet loading the page simply sees an empty state. This is deliberately a
+separate, smaller page from the super-admin `AcademyManager` component
+(`/admin`), which keeps the create-academy flow and the full cross-academy
+list.
+
+**Compromised or departed owner wallet:** the super-admin's override above
+is the answer — since `requireAcademyManager` always accepts the
+super-admin regardless of `ownerWallet`, the super-admin can add/remove
+signers (including replacing the compromised wallet's own membership) on
+any academy at any time. There is no separate "transfer ownership" flow in
+this first version; changing an academy's recorded `ownerWallet` itself
+remains a direct database operation, same as it was before this role
+existed — only roster management was delegated, per the issue's scope.
 
 The admin UI (`AcademyManager`, rendered directly below the existing
 Validators section on the admin page) is intentionally **not** wired to
@@ -115,9 +154,10 @@ Nothing about existing single-wallet validator flows changes:
 | ---------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------- |
 | `POST /academies` (via `/api/admin/academies`)                                           | super-admin | Create an academy; owner wallet becomes its first member                                     |
 | `GET /academies` (via `/api/admin/academies`)                                            | super-admin | List all academies with their members, for the admin panel                                   |
-| `POST /academies/:id/members` (via `/api/admin/academies/:id/members`)                   | super-admin | Register an additional signer wallet under an academy                                        |
-| `DELETE /academies/:id/members/:wallet` (via `/api/admin/academies/:id/members/:wallet`) | super-admin | Remove a signer wallet's academy membership (off-chain only)                                 |
+| `POST /academies/:id/members` (via `/api/admin/academies/:id/members`)                   | super-admin or that academy's owner | Register an additional signer wallet under an academy                       |
+| `DELETE /academies/:id/members/:wallet` (via `/api/admin/academies/:id/members/:wallet`) | super-admin or that academy's owner | Remove a signer wallet's academy membership (off-chain only)                |
 | `GET /academies/wallet/:wallet`                                                          | public      | Look up the academy (if any) a wallet is registered under, for milestone-attribution display |
+| `GET /academies/owner/:wallet` (via `/api/admin/academies/mine`)                         | any authenticated wallet (returns only academies *that* wallet owns) | Session-to-role resolution for the academy-owner UI (issue #1173) |
 
 ## Academy milestone rollup (issue #1172)
 
