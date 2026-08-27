@@ -41,10 +41,14 @@ function downloadCsv(content: string, filename: string) {
 export default function AdminAuditLog() {
   const {
     entries,
+    nextCursor = null,
+    loadingMore = false,
     loading,
     error,
+    errorMessage,
     filter,
     setFilter,
+    loadMore = () => {},
     reconciliation,
     reconciling,
     runReconciliation,
@@ -271,7 +275,7 @@ export default function AdminAuditLog() {
         <p className="text-sm text-gray-400">Loading…</p>
       ) : error ? (
         <p role="alert" className="text-sm text-red-400">
-          Failed to load audit log.
+          {errorMessage ?? 'Failed to load audit log.'}
         </p>
       ) : entries.length === 0 ? (
         <EmptyState
@@ -338,6 +342,18 @@ export default function AdminAuditLog() {
               ))}
             </tbody>
           </table>
+          {nextCursor !== null && (
+            <div className="border-t border-gray-800 px-4 py-3">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:border-brand-green transition text-sm disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>

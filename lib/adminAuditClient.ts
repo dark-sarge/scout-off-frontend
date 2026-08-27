@@ -30,7 +30,14 @@ export async function fetchAuditLog(
 
   const qs = params.toString();
   const res = await fetchWithRetry(`/api/admin/audit-log${qs ? `?${qs}` : ''}`);
-  if (!res.ok) throw new Error('Failed to fetch audit log');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof body?.error === 'string'
+        ? body.error
+        : 'Failed to fetch audit log',
+    );
+  }
   return res.json();
 }
 

@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type { Player } from '@/types';
 import { fetchWithRetry } from './fetchWithRetry';
+import { fetchValidatorEvents, type IndexedEvent } from './indexerClient';
+import type { ValidatorLeaderboardRange } from './validatorLeaderboard';
 
 // `API_URL_INTERNAL` (server-only, no NEXT_PUBLIC_ prefix) lets a Server
 // Component's SSR-time fetch reach the backend via a container-internal
@@ -141,8 +143,28 @@ export const fetchActivityEvents = (
  */
 export const fetchValidatorMilestoneCount = async (
   validatorAddress: string,
+  range?: { start: number; end: number },
 ): Promise<number | null> => {
   try {
+    if (range) {
+      const events: IndexedEvent[] = [];
+      let before: number | undefined;
+      for (let page = 0; page < 10; page++) {
+        const result = await fetchValidatorEvents(validatorAddress, {
+          type: 'milestone_approved',
+          limit: 200,
+          before,
+        });
+        events.push(...result.events);
+        if (result.nextCursor === null || result.events.length === 0) break;
+        before = result.nextCursor;
+      }
+      return events.filter(
+        (event) =>
+          event.timestamp >= range.start && event.timestamp <= range.end,
+      ).length;
+    }
+
     const data = await api
       .get(`/validators/${encodeURIComponent(validatorAddress)}/stats`)
       .then((r) => r.data);
@@ -320,7 +342,10 @@ export const liftFraudThrottle = async (
  * idempotency key, matching liftFraudThrottle's precedent above.
  */
 export const dismissFraudFlag = async (
-  flag: Pick<FraudFlag, 'category' | 'heuristic' | 'severity' | 'wallets' | 'reason'>,
+  flag: Pick<
+    FraudFlag,
+    'category' | 'heuristic' | 'severity' | 'wallets' | 'reason'
+  >,
   note?: string,
 ): Promise<FraudFlagDismissal> => {
   const res = await fetch('/api/admin/fraud-flags/dismiss', {

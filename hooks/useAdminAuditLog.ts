@@ -23,10 +23,14 @@ const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface UseAdminAuditLogResult {
   entries: AdminAuditEntry[];
+  nextCursor: number | null;
+  loadingMore: boolean;
   loading: boolean;
   error: boolean;
+  errorMessage: string | null;
   filter: AuditLogQuery;
   setFilter: (filter: AuditLogQuery) => void;
+  loadMore: () => void;
   reconciliation: ReconciliationResult | null;
   reconciling: boolean;
   runReconciliation: () => void;
@@ -37,8 +41,11 @@ export interface UseAdminAuditLogResult {
 
 export function useAdminAuditLog(): UseAdminAuditLogResult {
   const [entries, setEntries] = useState<AdminAuditEntry[]>([]);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [filter, setFilter] = useState<AuditLogQuery>({ limit: 100 });
 
   const [reconciliation, setReconciliation] =
@@ -53,15 +60,39 @@ export function useAdminAuditLog(): UseAdminAuditLogResult {
   const load = useCallback(() => {
     setLoading(true);
     setError(false);
+    setErrorMessage(null);
+    setEntries([]);
+    setNextCursor(null);
     fetchAuditLog(filter)
-      .then((result) => setEntries(result.entries))
-      .catch(() => setError(true))
+      .then((result) => {
+        setEntries(result.entries);
+        setNextCursor(result.nextCursor);
+      })
+      .catch((err: unknown) => {
+        setError(true);
+        setErrorMessage(err instanceof Error ? err.message : null);
+      })
       .finally(() => setLoading(false));
   }, [filter]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadMore = useCallback(() => {
+    if (nextCursor === null || loadingMore) return;
+    setLoadingMore(true);
+    fetchAuditLog({ ...filter, before: nextCursor })
+      .then((result) => {
+        setEntries((current) => [...current, ...result.entries]);
+        setNextCursor(result.nextCursor);
+      })
+      .catch((err: unknown) => {
+        setError(true);
+        setErrorMessage(err instanceof Error ? err.message : null);
+      })
+      .finally(() => setLoadingMore(false));
+  }, [filter, loadingMore, nextCursor]);
 
   const loadReconciliationHistory = useCallback(() => {
     setReconciliationHistoryLoading(true);
@@ -99,10 +130,14 @@ export function useAdminAuditLog(): UseAdminAuditLogResult {
 
   return {
     entries,
+    nextCursor,
+    loadingMore,
     loading,
     error,
+    errorMessage,
     filter,
     setFilter,
+    loadMore,
     reconciliation,
     reconciling,
     runReconciliation,
