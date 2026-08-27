@@ -115,6 +115,28 @@ export interface AcademyMember {
   addedBy: string;
 }
 
+/**
+ * One academy's total approved-milestone count across its member wallets
+ * for a given time range (issue #1172 — see docs/academy-validator-model.md,
+ * "Academy milestone rollup"). `approvedMilestones` is `null` when the
+ * indexer couldn't be reached, matching `fetchValidatorMilestoneCount`'s
+ * fail-open convention rather than surfacing 0 (which would read as "no
+ * milestones" instead of "unknown").
+ */
+export interface AcademyMilestoneRollupEntry {
+  academyId: string;
+  academyName: string;
+  memberCount: number;
+  approvedMilestones: number | null;
+}
+
+export interface AcademyMilestoneRollup {
+  range: { start: number; end: number };
+  /** False when the indexer request failed — every entry's approvedMilestones is null in that case. */
+  indexerAvailable: boolean;
+  academies: AcademyMilestoneRollupEntry[];
+}
+
 // ── Scout ─────────────────────────────────────────────────────────────────────
 export type SubscriptionTier = 'basic' | 'pro' | 'elite';
 
