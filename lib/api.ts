@@ -405,6 +405,28 @@ export const fetchAcademyForWallet = async (
   }
 };
 
+import type { AcademyMilestoneRollup } from '@/types';
+
+/**
+ * Academy-scoped milestone-approval rollup (issue #1172): total approved
+ * milestones per academy, summed across its member wallets, for the last
+ * `rangeDays` days (or all-time when `rangeDays` is `'all'`). See
+ * docs/academy-validator-model.md's "Academy milestone rollup" section for
+ * the historical-attribution caveat this carries.
+ */
+export const fetchAcademyMilestoneRollup = async (
+  rangeDays: number | 'all' = 30,
+): Promise<AcademyMilestoneRollup> => {
+  const res = await fetchWithRetry(
+    `/api/admin/academies/rollup?rangeDays=${rangeDays}`,
+  );
+  if (!res.ok)
+    throw new Error(
+      await parseErrorMessage(res, 'Failed to fetch academy milestone rollup'),
+    );
+  return res.json();
+};
+
 // Milestone submissions (issues #567, #568) — an off-chain queue of
 // milestone claims awaiting validator review. See server/src/db.js for the
 // schema; this table models the "not yet approved" state the contract has
