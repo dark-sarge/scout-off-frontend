@@ -159,16 +159,57 @@ Nothing about existing single-wallet validator flows changes:
 | `GET /academies/wallet/:wallet`                                                          | public      | Look up the academy (if any) a wallet is registered under, for milestone-attribution display |
 | `GET /academies/owner/:wallet` (via `/api/admin/academies/mine`)                         | any authenticated wallet (returns only academies *that* wallet owns) | Session-to-role resolution for the academy-owner UI (issue #1173) |
 
+## Academy milestone rollup (issue #1172)
+
+`GET /api/admin/academies/rollup?rangeDays=<7|30|90|all>` answers the
+aggregate question the previous section flagged as unimplemented: total
+milestones approved across all of an academy's registered signer wallets,
+for a given time range. Surfaced on `AcademyManager` as a per-academy badge
+next to the signer count, with a range selector.
+
+**Why this route, not a new endpoint on either backend service:** the
+indexer (`packages/indexer`, SQLite event store) and `server/`'s academy
+service (a separate Node/Express process, its own SQLite DB) can't query
+each other's data. This route is the one place that already talks to both
+(matching `app/api/admin/health/route.ts`'s pattern): it fetches
+`GET /academies` from `server/` for the wallet→academy roster (including
+each member's `addedAt`), then calls the indexer's new
+`POST /validators/approval-counts` — which groups `milestone_approved`
+events by validator wallet in one indexed SQL query
+(`EventStore.getApprovalCountsForWallets`) — and sums each academy's
+member wallets' counts here.
+
+**Performance:** `getApprovalCountsForWallets` filters via the
+`(validator, event_type, timestamp)` index rather than scanning the whole
+`events` table, and the indexer memoizes identical `(range, wallet set)`
+requests for 30 seconds (cleared immediately on the next ingested
+`milestone_approved` event) so a dashboard re-render or several academies
+sharing a range don't each trigger a fresh query.
+
+**Historical-attribution limitation:** `academy_members` has no
+`removed_at`/tombstone — `removeMember` hard-deletes the row (see
+`server/src/academyService.js`, `server/src/db.js`). This rollup uses each
+current member's `added_at` as a lower bound, so it correctly excludes
+approvals from **before** a wallet joined its academy — it is not the naive
+"current member list x all-time approvals" the previous section warned
+against. It cannot, however, exclude approvals a wallet made **after**
+being removed from an academy, because a removed wallet has no
+`academy_members` row left to resolve `since` from at all: instead of being
+misattributed, a removed wallet's entire history — including approvals made
+while it *was* a legitimate member — silently drops out of that academy's
+total the moment it's removed. In practice, removal is rare relative to
+roster churn happening within the queried range, so this undercount is the
+deliberately safer failure mode versus overcounting, but it does mean the
+number can dip when a wallet is removed rather than only ever going up.
+Fully correct historical attribution would need `academy_members` to retain
+removed rows with a `removed_at` timestamp instead of deleting them — not
+implemented here to avoid a schema migration beyond what this issue's scope
+calls for; a natural follow-up if roster turnover turns out to be common
+enough to matter in practice.
+
 ## What this doesn't do
 
-- No aggregate "academy reputation" (e.g. total milestones approved across
-  all of an academy's wallets) — `fetchValidatorMilestoneCount` stays
-  per-wallet. Building an academy-scoped rollup would need a new indexer
-  query grouping by wallet-to-academy, layered on top of
-  `packages/indexer`'s event store (see issue #662) — a natural follow-up,
-  not required for the roster/attribution use case this issue asks for.
-- No academy-*creation* self-service — an academy-owner can manage their
-  own roster (see "Admin flow" above, issue #1173) but only the super-admin
-  can create new academies or reassign an `ownerWallet`. Building that out
-  is a natural follow-up, not required for the roster-delegation use case
-  this issue asked for.
+- No self-service academy-owner UI. An academy's `ownerWallet` is recorded
+  but not yet authorization-checked against anything — today only the
+  super-admin can manage rosters. Turning `ownerWallet` into an actual
+  scoped-admin role is a larger, separate authorization change.

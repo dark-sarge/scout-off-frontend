@@ -39,6 +39,16 @@ export async function renameSavedSearch(
   return res.json();
 }
 
+export async function markSavedSearchViewed(id: number): Promise<SavedSearch> {
+  const res = await fetch('/api/saved-searches', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, markViewed: true }),
+  });
+  if (!res.ok) throw new Error('Failed to mark saved search viewed');
+  return res.json();
+}
+
 export async function removeSavedSearch(id: number): Promise<void> {
   const res = await fetch('/api/saved-searches', {
     method: 'DELETE',

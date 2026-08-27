@@ -2,6 +2,7 @@ import type {
   AdminAuditActionType,
   AdminAuditQueryResult,
   ReconciliationResult,
+  ReconciliationRun,
 } from '@/lib/adminAudit';
 import { fetchWithRetry } from '@/lib/fetchWithRetry';
 
@@ -67,4 +68,15 @@ export async function fetchReconciliation(): Promise<ReconciliationResult> {
   const res = await fetchWithRetry('/api/admin/audit-log/reconcile');
   if (!res.ok) throw new Error('Failed to run reconciliation');
   return res.json();
+}
+
+/** Past reconciliation runs, newest first (issue #1188). */
+export async function fetchReconciliationHistory(
+  limit?: number,
+): Promise<ReconciliationRun[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  const res = await fetch(`/api/admin/audit-log/reconcile/history${qs}`);
+  if (!res.ok) throw new Error('Failed to fetch reconciliation history');
+  const body = await res.json();
+  return body.runs;
 }

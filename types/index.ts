@@ -115,6 +115,28 @@ export interface AcademyMember {
   addedBy: string;
 }
 
+/**
+ * One academy's total approved-milestone count across its member wallets
+ * for a given time range (issue #1172 — see docs/academy-validator-model.md,
+ * "Academy milestone rollup"). `approvedMilestones` is `null` when the
+ * indexer couldn't be reached, matching `fetchValidatorMilestoneCount`'s
+ * fail-open convention rather than surfacing 0 (which would read as "no
+ * milestones" instead of "unknown").
+ */
+export interface AcademyMilestoneRollupEntry {
+  academyId: string;
+  academyName: string;
+  memberCount: number;
+  approvedMilestones: number | null;
+}
+
+export interface AcademyMilestoneRollup {
+  range: { start: number; end: number };
+  /** False when the indexer request failed — every entry's approvedMilestones is null in that case. */
+  indexerAvailable: boolean;
+  academies: AcademyMilestoneRollupEntry[];
+}
+
 // ── Scout ─────────────────────────────────────────────────────────────────────
 export type SubscriptionTier = 'basic' | 'pro' | 'elite';
 
@@ -237,6 +259,30 @@ export interface FraudThrottle {
   liftReason: string | null;
 }
 
+// ── Admin decisions on fraud flags (issue #1171) ────────────────────────────
+
+/**
+ * An admin's decision to dismiss a specific, content-keyed fraud flag as a
+ * false positive so it stops re-surfacing on every panel load. Keyed by
+ * `computeFraudFlagDismissalKey` (lib/fraudDetection.ts), not a database id
+ * carried on the flag itself — flags are recomputed from scratch on every
+ * run, so there is no such id to key on. See lib/fraudFlagDismissalStore.ts.
+ */
+export interface FraudFlagDismissal {
+  id: number;
+  flagKey: string;
+  category: FraudFlagCategory;
+  heuristic: string;
+  severity: FraudFlagSeverity;
+  wallets: string[];
+  /** Snapshot of `FraudFlag.reason` at the time of dismissal, for display. */
+  flagReason: string;
+  /** Optional free-form context the dismissing admin left. */
+  note: string | null;
+  dismissedBy: string;
+  dismissedAt: number;
+}
+
 // ── Contract call helpers ─────────────────────────────────────────────────────
 export interface ContractCallResult<T = unknown> {
   success: boolean;
@@ -258,6 +304,7 @@ export interface SavedSearch {
   name: string;
   filter: PlayerFilter;
   createdAt: number; // Unix ms
+  lastViewedAt: number; // Unix ms — when the scout last opened this search's results
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

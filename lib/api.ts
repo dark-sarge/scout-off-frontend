@@ -164,6 +164,7 @@ import type {
   ReferralOverview,
   FraudFlag,
   FraudThrottle,
+  FraudFlagDismissal,
 } from '@/types';
 
 export const generateReferralCode = (
@@ -309,6 +310,28 @@ export const liftFraudThrottle = async (
   return res.json();
 };
 
+/**
+ * Persists an admin decision that `flag` is reviewed and not actually abuse
+ * (issue #1171), so it stops re-surfacing on subsequent `fetchFraudFlags`
+ * loads as long as the underlying evidence hasn't materially changed. See
+ * lib/fraudFlagDismissalStore.ts and app/api/admin/fraud-flags/dismiss/route.ts.
+ *
+ * Deliberately a bare `fetch`, not `fetchWithRetry`: a POST with no
+ * idempotency key, matching liftFraudThrottle's precedent above.
+ */
+export const dismissFraudFlag = async (
+  flag: Pick<FraudFlag, 'category' | 'heuristic' | 'severity' | 'wallets' | 'reason'>,
+  note?: string,
+): Promise<FraudFlagDismissal> => {
+  const res = await fetch('/api/admin/fraud-flags/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flag, note }),
+  });
+  if (!res.ok) throw new Error('Failed to dismiss fraud flag');
+  return res.json();
+};
+
 // Academies (issue #663) — off-chain grouping of validator wallets under one
 // institutional identity. Admin-write endpoints go through the session-cookie-
 // gated Next.js proxy (app/api/admin/academies/**), matching the referrals
@@ -418,6 +441,28 @@ export const fetchAcademyForWallet = async (
   } catch {
     return null;
   }
+};
+
+import type { AcademyMilestoneRollup } from '@/types';
+
+/**
+ * Academy-scoped milestone-approval rollup (issue #1172): total approved
+ * milestones per academy, summed across its member wallets, for the last
+ * `rangeDays` days (or all-time when `rangeDays` is `'all'`). See
+ * docs/academy-validator-model.md's "Academy milestone rollup" section for
+ * the historical-attribution caveat this carries.
+ */
+export const fetchAcademyMilestoneRollup = async (
+  rangeDays: number | 'all' = 30,
+): Promise<AcademyMilestoneRollup> => {
+  const res = await fetchWithRetry(
+    `/api/admin/academies/rollup?rangeDays=${rangeDays}`,
+  );
+  if (!res.ok)
+    throw new Error(
+      await parseErrorMessage(res, 'Failed to fetch academy milestone rollup'),
+    );
+  return res.json();
 };
 
 // Milestone submissions (issues #567, #568) — an off-chain queue of
