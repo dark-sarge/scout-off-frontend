@@ -104,6 +104,16 @@ export interface Academy {
   ownerWallet: string;
   createdAt: number;
   members: AcademyMember[];
+  /**
+   * Optional milestone-approval quorum (issue #1185): the minimum number of
+   * this academy's distinct member wallets that must each endorse a
+   * milestone before it's shown as "academy-verified" in the UI. `null`
+   * (the default) means no quorum is configured — behaves identically to
+   * before this feature existed. Purely an off-chain display/workflow
+   * setting; never affects on-chain `approve_milestone` authorization,
+   * which stays single-signer regardless of this value.
+   */
+  quorum: number | null;
 }
 
 /** One wallet registered as a signer under an {@link Academy}. */

@@ -425,6 +425,28 @@ export const removeAcademyMember = async (
 };
 
 /**
+ * Sets (or, with `quorum: null`, clears) an academy's milestone-approval
+ * quorum (issue #1185). See types/index.ts's `Academy.quorum` doc comment —
+ * purely off-chain display/workflow, never on-chain authorization.
+ */
+export const setAcademyQuorum = async (
+  academyId: string,
+  quorum: number | null,
+): Promise<Academy> => {
+  const res = await fetchWithRetry(
+    `/api/admin/academies/${encodeURIComponent(academyId)}/quorum`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quorum }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(await parseErrorMessage(res, 'Failed to set quorum'));
+  return res.json();
+};
+
+/**
  * Looks up the academy a validator wallet is registered under, for
  * milestone-attribution display. Returns `null` when the wallet isn't part
  * of any academy or the lookup fails, so callers (e.g. ValidatorChip) can

@@ -207,6 +207,76 @@ implemented here to avoid a schema migration beyond what this issue's scope
 calls for; a natural follow-up if roster turnover turns out to be common
 enough to matter in practice.
 
+## Milestone approval quorum (issue #1185)
+
+Even with academies grouping several validator wallets under one
+institution, on-chain milestone approval (`approve_milestone`) is — and
+remains — strictly single-signer: any one authorized validator wallet can
+approve a milestone, with no on-chain concept of requiring agreement from
+multiple staff at the same academy. For a milestone that matters (advancing
+a player toward Level 3/Elite Tier, or any claim an academy's institutional
+reputation is riding on), a single coach's approval today carries the same
+on-chain weight as a full academy consensus. This section adds an optional,
+purely off-chain quorum layer on top — following this document's exact
+philosophy (**on-chain untouched, richer semantics layered off-chain**)
+rather than introducing a new authorization pattern.
+
+**Configuration.** An academy record now carries an optional `quorum`
+column (`server/src/db.js`, `PATCH /academies/:id/quorum` via
+`app/api/admin/academies/[id]/quorum/route.ts`, same super-admin gate as
+every other academy-admin action) — the minimum number of that academy's
+distinct member wallets that must each endorse a milestone before it's
+shown as "academy-verified." `null` (the default) means no quorum is
+configured, and an academy that never touches this setting behaves
+identically to before this feature existed — `AcademyQuorumBadge` (below)
+renders nothing at all in that case.
+
+**Why endorsements, not repeated `approve_milestone` calls.** The most
+literal reading of "N validators must each call `approve_milestone`" runs
+into a real constraint: `approve_milestone` isn't a vote on an existing
+milestone record, it's what *creates* one — each call appends a new
+milestone entry and advances the player's `progressLevel` by one step (see
+`buildApproveMilestone`'s doc comment in `lib/contract.ts`). Having a second
+academy member call it again "to add their signature" would be a genuinely
+new on-chain action with its own side effects (advancing progress further,
+or failing with `AlreadyAtLevel` once the player is already maxed) — not a
+confirmation of the first. That's exactly the kind of on-chain effect this
+issue's acceptance criteria says a quorum configuration must never cause
+("purely additive... never blocks or delays the underlying on-chain
+`approve_milestone` call").
+
+So quorum counting is built on a separate, lightweight off-chain table
+instead: `lib/milestoneEndorsementStore.ts` records `(playerId,
+milestoneId, wallet)` rows. The wallet that originally called
+`approve_milestone` has their own approval auto-recorded as their first
+endorsement immediately after their transaction confirms (see
+`components/validator/ApproveForm.tsx` — best-effort, fire-and-forget, same
+`.catch(() => {})` precedent as `recordAuditEntry`). Any other validator who
+is a registered member of that *same* academy can then add their own
+endorsement via `POST /api/milestones/:playerId/:milestoneId/endorsements`
+— an off-chain-only write, never a wallet-signed transaction. Quorum is met
+once the count of distinct, still-current academy-member wallets among a
+milestone's endorsers reaches the configured `quorum`.
+
+**Display.** `components/player/AcademyQuorumBadge.tsx`, rendered next to
+`ValidatorChip` in `MilestoneTimeline`, shows nothing when the approving
+validator has no academy or that academy has no quorum configured (the
+"no regression for opt-out academies" requirement). Otherwise it shows
+"Academy pending (n/m)" (amber) below quorum, or "Academy-verified (n/m)"
+(emerald) once met — visually and semantically distinct from the plain
+on-chain-approved state `ValidatorChip` already conveys, which is accurate
+to contract state either way: the milestone *is* on-chain approved the
+moment `approve_milestone` confirms, regardless of quorum. A connected
+validator who is a member of the same academy and hasn't yet endorsed sees
+an "Endorse" button.
+
+**What this doesn't do.** No retroactive backfill — a milestone approved
+before this feature shipped starts with just its original approver's
+auto-recorded endorsement, same as any new one. No enforcement that an
+academy's *coordination* happens before endorsing (a member could endorse
+without actually reviewing) — this is a workflow nudge, not a moderation
+gate, matching the issue's explicit framing as additive UI guidance.
+
 ## What this doesn't do
 
 - No self-service academy-owner UI. An academy's `ownerWallet` is recorded

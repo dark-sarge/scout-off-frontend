@@ -95,4 +95,26 @@ router.delete('/:id/members/:wallet', (req, res) => {
   return res.json({ success: true });
 });
 
+// PATCH /academies/:id/quorum
+// Body: { quorum: number | null } — see issue #1185. null clears a
+// previously-configured quorum, restoring today's default behavior.
+router.patch('/:id/quorum', (req, res) => {
+  const { quorum } = req.body ?? {};
+  if (quorum !== null && (!Number.isInteger(quorum) || quorum < 1)) {
+    return res
+      .status(400)
+      .json({ error: 'quorum must be a positive integer, or null to clear it' });
+  }
+
+  try {
+    const academy = academyService.setAcademyQuorum(req.params.id, quorum);
+    return res.json(academy);
+  } catch (err) {
+    if (err instanceof academyService.AcademyNotFoundError) {
+      return res.status(404).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
 module.exports = router;

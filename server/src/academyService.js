@@ -22,6 +22,9 @@ const insertMember = db.prepare(
 const findMemberByWallet = db.prepare(
   `SELECT * FROM academy_members WHERE wallet = ?`,
 );
+const updateQuorumStmt = db.prepare(
+  `UPDATE academies SET quorum = @quorum WHERE id = @id`,
+);
 const listMembersByAcademy = db.prepare(
   `SELECT * FROM academy_members WHERE academy_id = ? ORDER BY added_at ASC`,
 );
@@ -45,6 +48,9 @@ function toAcademy(row) {
     ownerWallet: row.owner_wallet,
     createdAt: row.created_at,
     members: listMembersByAcademy.all(row.id).map(toMember),
+    // NULL (unconfigured) is the default and must behave identically to
+    // today — see issue #1185.
+    quorum: row.quorum ?? null,
   };
 }
 
