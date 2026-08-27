@@ -8,6 +8,50 @@ reconciliation against on-chain truth. Implemented in `lib/adminAudit.ts`,
 `components/admin/AdminAuditLog.tsx`, and the `execAction` wiring in
 `app/[locale]/admin/page.tsx`.
 
+## Admin API rate-limit audit
+
+Before this guard, the admin API routes relied on authentication but did not
+apply request rate limiting. This included expensive reconciliation and fraud
+flag evaluation calls, as well as audit-log reads, academy operations, health,
+cleanup, referral, and fraud-flag mutation routes.
+
+`middleware.ts` now applies the shared `lib/rateLimit.ts` limiter to every
+`/api/admin/*` route, keyed by route and client IP. Reconciliation and fraud
+evaluation allow 3 requests per 5 minutes and 1 minute respectively; other
+admin routes allow 30 requests per minute. The response is HTTP 429 with a
+`Retry-After` header and a clear JSON error. `AdminAuditLog` surfaces that
+message instead of replacing it with an undifferentiated fetch error.
+
+The limiter uses shared Upstash Redis when configured and the repository's
+documented in-memory fallback otherwise. Authentication remains enforced by
+each route after the middleware guard.
+
+| Route family                                                   | Current status                                    |
+| -------------------------------------------------------------- | ------------------------------------------------- |
+| `/api/admin/audit-log` and `/api/admin/audit-log/reconcile/**` | Covered; reconciliation uses the stricter limit.  |
+| `/api/admin/academies/**`                                      | Covered by the general admin limit.               |
+| `/api/admin/automated-moderation-log`                          | Covered by the general admin limit.               |
+| `/api/admin/config-status`                                     | Covered by the general admin limit.               |
+| `/api/admin/fraud-flags/**`                                    | Covered; full evaluation uses the stricter limit. |
+| `/api/admin/health`                                            | Covered by the general admin limit.               |
+| `/api/admin/ipfs-cleanup`                                      | Covered by the general admin limit.               |
+| `/api/admin/orphaned-uploads`                                  | Covered by the general admin limit.               |
+| `/api/admin/referrals`                                         | Covered by the general admin limit.               |
+
+## UI pagination audit
+
+The audit store and `GET /api/admin/audit-log` endpoint use keyset pagination:
+they return up to the requested limit plus a `nextCursor` containing the last
+entry ID when older entries remain. Previously, `useAdminAuditLog` requested
+the first 100 entries but discarded `nextCursor`, and `AdminAuditLog` had no
+control to request another page. The UI was therefore silently limited to the
+newest 100 entries.
+
+The hook now exposes `nextCursor` and `loadMore`. The component appends older
+pages using the existing `before` cursor while preserving the active action and
+date filters. A platform with more than 100 entries can therefore reach its
+full retained history without a page reload.
+
 Scoped to exclude validator-specific audit/CSV work already covered by a
 separate validator-audit-log feature request — this system is the
 cross-action superset (validator actions included, but not limited to
@@ -186,7 +230,7 @@ This is what keeps a mismatch that persists across many consecutive runs
 (e.g. an admin hasn't gotten around to fixing it yet) from re-triggering a
 fresh notification every single run — it only fires once, on first
 appearance. This issue does not implement the acceptance criteria's
-*optional* longer-cadence "still unresolved" reminder; the history view
+_optional_ longer-cadence "still unresolved" reminder; the history view
 above already lets an admin see how long a mismatch has persisted.
 
 **Notification channel: webhook, not email.** This repo has no
